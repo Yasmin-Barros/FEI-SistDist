@@ -1,8 +1,56 @@
+x-python: &python
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: fei-sistdist:python
+  restart: unless-stopped
+
 services:
-  teste:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: cc7261:teste
+  broker:
+    <<: *python
+    container_name: broker
+    command: python broker.py
+
+  server-1:
+    <<: *python
+    container_name: server-1
+    command: python server.py
+    environment:
+      SERVER_NAME: server-1
+      BROKER_ADDR: tcp://broker:5556
+      DATA_DIR: /data
     volumes:
-      - .:/arquivos
+      - ./data/server-1:/data   # dados exclusivos deste servidor
+    depends_on: [broker]
+
+  server-2:
+    <<: *python
+    container_name: server-2
+    command: python server.py
+    environment:
+      SERVER_NAME: server-2
+      BROKER_ADDR: tcp://broker:5556
+      DATA_DIR: /data
+    volumes:
+      - ./data/server-2:/data
+    depends_on: [broker]
+
+  client-1:
+    <<: *python
+    container_name: client-1
+    command: python client.py
+    environment:
+      BOT_NAME: bot-py-1
+      BROKER_ADDR: tcp://broker:5555
+    depends_on: [broker, server-1, server-2]
+
+  client-2:
+    <<: *python
+    container_name: client-2
+    command: python client.py
+    environment:
+      # Nome inválido de propósito (tem espaço): mostra o erro de login
+      # e a repetição do login com o nome corrigido.
+      BOT_NAME: "bot py 2"
+      BROKER_ADDR: tcp://broker:5555
+    depends_on: [broker, server-1, server-2]
