@@ -1,7 +1,12 @@
-FROM alpine:3.23.2
+FROM python:3.12-slim
 
-WORKDIR /arquivos
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
 
-RUN apk add python3
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["sh"]
+COPY python/ /app/
+
+# O comando (broker.py, server.py ou client.py) é definido no docker-compose.yaml
+CMD ["python", "broker.py"]
