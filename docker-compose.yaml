@@ -18,6 +18,16 @@ services:
     container_name: broker
     command: python broker.py
 
+  reference:
+    <<: *python
+    container_name: reference
+    command: python reference.py
+    environment:
+      REFERENCE_BIND: tcp://*:5559
+      HEARTBEAT_TIMEOUT: 30
+    ports:
+      - "5559:5559"
+
   proxy:
     <<: *python
     container_name: proxy
@@ -35,9 +45,10 @@ services:
       BROKER_ADDR: tcp://broker:5556
       PROXY_PUB_ADDR: tcp://proxy:5557
       DATA_DIR: /data
+      REFERENCE_ADDR: tcp://reference:5559
     volumes:
       - ./data/server-1:/data
-    depends_on: [broker, proxy]
+    depends_on: [broker, proxy, reference]
 
   server-2:
     <<: *python
@@ -48,9 +59,10 @@ services:
       BROKER_ADDR: tcp://broker:5556
       PROXY_PUB_ADDR: tcp://proxy:5557
       DATA_DIR: /data
+      REFERENCE_ADDR: tcp://reference:5559
     volumes:
       - ./data/server-2:/data
-    depends_on: [broker, proxy]
+    depends_on: [broker, proxy, reference]
 
   client-1:
     <<: *java
