@@ -1,15 +1,16 @@
-"""Código compartilhado por broker, servidor e cliente (Python).
+"""Código compartilhado por broker, proxy, servidor e cliente (Python).
 
-Formato das mensagens (serializadas em MessagePack, nunca JSON/texto):
+Formato das mensagens REQ/REP (serializadas em MessagePack, nunca JSON/texto):
 
     {
-        "service":   str,    # "login" | "channel" | "channels"
+        "service":   str,    # "login" | "channel" | "channels" | "publish"
         "timestamp": float,  # epoch em segundos, preenchido por quem envia
         "data":      dict,   # conteúdo específico de cada serviço
     }
 
-Respostas usam o mesmo envelope; em `data` sempre existe `status`
-("sucesso" ou "erro") e, em caso de erro, `description`.
+Formato das mensagens PUB/SUB (multipart ZeroMQ):
+    Frame 0: nome do canal/tópico em UTF-8 (ex.: b"geral") para filtragem nativa do ZMQ
+    Frame 1: envelope MessagePack com {"service": "pub", "timestamp": float, "data": {...}}
 """
 import re
 import time
@@ -37,7 +38,20 @@ def unpack(raw: bytes) -> dict:
     return msgpack.unpackb(raw, raw=False)
 
 
-def _fmt_ts(ts) -> str:
+def pack_pub(channel: str, data: dict) -> list[bytes]:
+    """Monta mensagem multipart [tópico, envelope MessagePack] para Pub/Sub."""
+    payload = pack("pub", {"channel": channel, **data})
+    return [channel.encode("utf-8"), payload]
+
+
+def unpack_pub(frames: list[bytes]) -> tuple[str, dict]:
+    """Desempacota mensagem multipart [tópico, envelope MessagePack]."""
+    topic = frames[0].decode("utf-8")
+    msg = unpack(frames[1])
+    return topic, msg
+
+
+def fmt_ts(ts) -> str:
     try:
         return datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S.%f")[:-3]
     except (TypeError, ValueError, OverflowError, OSError):
@@ -50,7 +64,7 @@ def log(who: str, direction: str, msg: dict, peer: str = "") -> None:
     arrow = "->" if direction == "ENVIADA" else "<-"
     print(
         f"[{now}] {who:<10} {direction:<9} {arrow} {peer:<8} | "
-        f"service={msg.get('service')} | ts_envio={_fmt_ts(msg.get('timestamp'))} | "
+        f"service={msg.get('service')} | ts_envio={fmt_ts(msg.get('timestamp'))} | "
         f"data={msg.get('data')}",
         flush=True,
     )
