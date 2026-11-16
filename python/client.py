@@ -16,6 +16,7 @@ from common import (
     pack,
     unpack,
     unpack_pub,
+    LamportClock,
 )
 
 NAME = os.getenv("BOT_NAME", "bot-py-1")
@@ -49,6 +50,7 @@ sub_sock = None
 sub_lock = threading.Lock()
 subscribed_channels: set[str] = set()
 user = NAME
+clock = LamportClock()
 
 
 def connect_req() -> None:
@@ -72,6 +74,7 @@ def start_subscriber() -> None:
             if frames:
                 recv_ts = time.time()
                 topic, msg = unpack_pub(frames)
+                clock.received(msg.get("logical_clock"))
                 data = msg.get("data", {})
                 send_ts = msg.get("timestamp")
                 recv_fmt = datetime.fromtimestamp(recv_ts).strftime("%H:%M:%S.%f")[:-3]
@@ -95,13 +98,14 @@ def subscribe_channel(channel: str) -> None:
 
 
 def request(service: str, data: dict) -> dict:
-    payload = pack(service, data)
+    payload = pack(service, data, clock)
     msg = unpack(payload)
     while True:
         req_sock.send(payload)
         log(user, "ENVIADA", msg, "broker")
         if req_sock.poll(TIMEOUT_MS):
             reply = unpack(req_sock.recv())
+            clock.received(reply.get("logical_clock"))
             log(user, "RECEBIDA", reply, "broker")
             return reply
         info(user, f"sem resposta em {TIMEOUT_MS} ms (serviço indisponível?), tentando de novo...")
