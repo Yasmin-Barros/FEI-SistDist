@@ -55,6 +55,14 @@ public class ClientBot {
     private final Object subLock = new Object();
     private final Set<String> subscribedChannels = ConcurrentHashMap.newKeySet();
     private String user = NAME;
+    private long logicalClock = 0L;
+
+    private synchronized long clockSent() { return ++logicalClock; }
+    private synchronized void clockReceived(Object remote) {
+        if (remote instanceof Number n && n.longValue() >= 0) {
+            logicalClock = Math.max(logicalClock, n.longValue());
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         new ClientBot().run();
@@ -114,6 +122,7 @@ public class ClientBot {
                         Map<String, Object> msg = unpackEnvelope(payload);
                         @SuppressWarnings("unchecked")
                         Map<String, Object> data = (Map<String, Object>) msg.getOrDefault("data", Map.of());
+                        clockReceived(msg.get("logical_clock"));
                         double sendTs = toDouble(msg.get("timestamp"));
 
                         String line = String.format(
@@ -150,7 +159,7 @@ public class ClientBot {
     private Map<String, Object> request(String service, Map<String, Object> data) throws IOException {
         double sendTs = nowEpoch();
         byte[] payload = packEnvelope(service, sendTs, data);
-        Map<String, Object> sentMsg = Map.of("service", service, "timestamp", sendTs, "data", data);
+        Map<String, Object> sentMsg = unpackEnvelope(payload); // inclui o logical_clock efetivamente serializado
 
         ZMQ.Poller poller = ctx.createPoller(1);
         poller.register(reqSock, ZMQ.Poller.POLLIN);
@@ -162,6 +171,7 @@ public class ClientBot {
             if (poller.poll(TIMEOUT_MS) > 0) {
                 byte[] rawReply = reqSock.recv(0);
                 Map<String, Object> reply = unpackEnvelope(rawReply);
+                clockReceived(reply.get("logical_clock"));
                 log("RECEBIDA", reply, "broker");
                 poller.close();
                 return reply;
@@ -272,13 +282,16 @@ public class ClientBot {
 
     private byte[] packEnvelope(String service, double timestamp, Map<String, Object> data) throws IOException {
         try (MessageBufferPacker packer = MessagePack.newDefaultBufferPacker()) {
-            packer.packMapHeader(3);
+            packer.packMapHeader(4);
 
             packer.packString("service");
             packer.packString(service);
 
             packer.packString("timestamp");
             packer.packDouble(timestamp);
+
+            packer.packString("logical_clock");
+            packer.packLong(clockSent());
 
             packer.packString("data");
             packer.packMapHeader(data.size());
@@ -357,9 +370,9 @@ public class ClientBot {
         String arrow = "ENVIADA".equals(direction) ? "->" : "<-";
         double ts = toDouble(msg.get("timestamp"));
         String line = String.format(
-                "[%s] %-10s %-9s %s %-8s | service=%s | ts_envio=%s | data=%s",
+                "[%s] %-10s %-9s %s %-8s | service=%s | ts_envio=%s | logical_clock=%s | data=%s",
                 nowStr(), user, direction, arrow, peer,
-                msg.get("service"), fmtTs(ts), msg.get("data")
+                msg.get("service"), fmtTs(ts), msg.get("logical_clock"), msg.get("data")
         );
         System.out.println(line);
         System.out.flush();
