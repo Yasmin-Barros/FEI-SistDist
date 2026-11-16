@@ -5,11 +5,26 @@ x-python: &python
   image: fei-sistdist:python
   restart: unless-stopped
 
+x-java: &java
+  build:
+    context: ./java
+    dockerfile: Dockerfile
+  image: fei-sistdist:java-client
+  restart: unless-stopped
+
 services:
   broker:
     <<: *python
     container_name: broker
     command: python broker.py
+
+  proxy:
+    <<: *python
+    container_name: proxy
+    command: python proxy.py
+    environment:
+      XSUB_BIND: tcp://*:5557
+      XPUB_BIND: tcp://*:5558
 
   server-1:
     <<: *python
@@ -18,10 +33,11 @@ services:
     environment:
       SERVER_NAME: server-1
       BROKER_ADDR: tcp://broker:5556
+      PROXY_PUB_ADDR: tcp://proxy:5557
       DATA_DIR: /data
     volumes:
-      - ./data/server-1:/data   # dados exclusivos deste servidor
-    depends_on: [broker]
+      - ./data/server-1:/data
+    depends_on: [broker, proxy]
 
   server-2:
     <<: *python
@@ -30,27 +46,28 @@ services:
     environment:
       SERVER_NAME: server-2
       BROKER_ADDR: tcp://broker:5556
+      PROXY_PUB_ADDR: tcp://proxy:5557
       DATA_DIR: /data
     volumes:
       - ./data/server-2:/data
-    depends_on: [broker]
+    depends_on: [broker, proxy]
 
   client-1:
-    <<: *python
+    <<: *java
     container_name: client-1
-    command: python client.py
     environment:
-      BOT_NAME: bot-py-1
+      BOT_NAME: bot-java-1
       BROKER_ADDR: tcp://broker:5555
-    depends_on: [broker, server-1, server-2]
+      PROXY_SUB_ADDR: tcp://proxy:5558
+    depends_on: [broker, proxy, server-1, server-2]
 
   client-2:
-    <<: *python
+    <<: *java
     container_name: client-2
-    command: python client.py
     environment:
-      # Nome inválido de propósito (tem espaço): mostra o erro de login
-      # e a repetição do login com o nome corrigido.
-      BOT_NAME: "bot py 2"
+      # Nome inválido de propósito (tem espaço): valida o erro de login
+      # e a repetição automática com o nome sanitizado.
+      BOT_NAME: "bot java 2"
       BROKER_ADDR: tcp://broker:5555
-    depends_on: [broker, server-1, server-2]
+      PROXY_SUB_ADDR: tcp://proxy:5558
+    depends_on: [broker, proxy, server-1, server-2]
